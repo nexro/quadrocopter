@@ -40,4 +40,4 @@ That's it! You are now ready to flash the code with the Arduino IDE to your Ardu
 - You can connect a LED to pin 47. This LED turns on, when the quadrocopter is calibrated and ready to fly
 
 ## Annotation
-The work on this code is still in progress. I'm sure it is not perfect and there are still important features missing. Feel free to participate :)
+The work on this code is still in progress. I'm sure it is not perfect and there are still important features missing. Feel free to contribute :)

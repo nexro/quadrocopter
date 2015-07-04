@@ -5,20 +5,20 @@
 
 #include <Servo.h>
 #include <Wire.h>
-#include <PinChangeInt.h>
+#include "PinChangeInt.h"
 #include "I2Cdev.h"
 #include "MPU6050_6Axis_MotionApps20.h"
-#include <PID_v1.h>
+#include "PID_v1.h"
 #include <EEPROM.h>
 #include <avr/wdt.h>
 
-float PITCH_P_VAL = 10; //Pitch Pid Values
-float PITCH_I_VAL = 5;
-float PITCH_D_VAL = 0;
+float PITCH_P_VAL = 15; //Pitch Pid Values
+float PITCH_I_VAL = 8;
+float PITCH_D_VAL = 3;
 
-float ROLL_P_VAL = 10; //Roll Pid Values
-float ROLL_I_VAL = 5;
-float ROLL_D_VAL = 0;
+float ROLL_P_VAL = 15; //Roll Pid Values
+float ROLL_I_VAL = 8;
+float ROLL_D_VAL = 3;
 
 bool lightOn = false;
 unsigned long lastLightTimeStamp = 0;
@@ -27,6 +27,10 @@ volatile long rcThrottleDuration;
 volatile unsigned long rcThrottleStart = 0;
 volatile long rcStartDuration;
 volatile unsigned long rcStartStart = 0;
+volatile unsigned long rcPitchStart = 0;
+volatile long rcPitchDuration;
+volatile unsigned long rcRollStart = 0;
+volatile long rcRollDuration;
 
 Servo myMotor1;
 Servo myMotor2;
@@ -39,6 +43,7 @@ double rollBalancer = 0.0f;
 double pitchBalancerSetpoint = 0.0;
 double rollBalancerSetpoint = 0.0;
 double yawSetpoint = 0.0;
+int pitchValue;
 float dmpPOffset, dmpROffset; //calibration offset
 
 // orientation/motion vars
@@ -60,7 +65,7 @@ uint8_t fifoBuffer[64]; // FIFO storage
 //pid controllers
 PID pitchReg(&ypr[1], &pitchBalancer, &pitchBalancerSetpoint, PITCH_P_VAL, PITCH_I_VAL, PITCH_D_VAL, REVERSE);
 PID rollReg(&ypr[2], &rollBalancer, &rollBalancerSetpoint, ROLL_P_VAL, ROLL_I_VAL, ROLL_D_VAL, REVERSE);
-PID yawReg(&ypr[0], &yawRegulator, &yawSetpoint, 7.0f, 5.0f, 4.0f, REVERSE);
+PID yawReg(&ypr[0], &yawRegulator, &yawSetpoint, 11.0f, 5.0f, 4.0f, REVERSE);
 
 bool systemReady = false;
 
@@ -144,12 +149,54 @@ void startISR(){
   }
 }
 
+//ISR for rolling
+void rollISR(){
+  if (digitalRead(A11) == HIGH){
+    rcRollStart = micros();
+  }else{
+    if (rcRollStart > 0){
+      rcRollDuration = micros() - rcRollStart;
+      if (rcRollDuration -1520.0 > -50 && rcRollDuration -1520.0 < 50){
+        //quadrocopter doesn't have to roll right or left
+        rollBalancerSetpoint = 0.0;
+      }else {
+        //rolling left or right
+        double newSetpoint = -0.15 /(500.0 / (rcRollDuration - 1520.0));
+        rollBalancerSetpoint = newSetpoint;
+      }
+     }
+  }
+}
+
+//ISR for pitching
+void pitchISR(){
+  if (digitalRead(A10) == HIGH){
+    rcPitchStart = micros();
+  }else{
+    if (rcPitchStart > 0){
+      rcPitchDuration = micros() - rcPitchStart;
+      if (rcPitchDuration -1520.0 > -50 && rcPitchDuration -1520.0 < 50){
+        //quadrocopter doesn't have to pitch up or down
+        pitchBalancerSetpoint = 0.0;
+      }else {
+        //pitching down or up
+        double newSetpoint = 0.15 /(500.0 / (rcPitchDuration - 1520.0));
+        pitchBalancerSetpoint = newSetpoint;
+      }
+     }
+  }
+}
+
 //ISRs für RC bekannt machen
 void initializeRCInterrupts(){
   pinMode(A8, INPUT);
   pinMode(A9, INPUT);
+  pinMode(A10, INPUT);
+  pinMode(A11, INPUT);
   attachPinChangeInterrupt(A8,throttleISR,CHANGE); //Throttle ISR
   attachPinChangeInterrupt(A9,startISR,CHANGE); //Throttle ISR
+  attachPinChangeInterrupt(A10,pitchISR,CHANGE); //Pitch ISR
+  attachPinChangeInterrupt(A11,rollISR,CHANGE); //Roll ISR
 }
 
 //init motors and stop them
