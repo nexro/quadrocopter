@@ -11,14 +11,15 @@
 #include "PID_v1.h"
 #include <EEPROM.h>
 #include <avr/wdt.h>
+#include "Adafruit_GPS.h"
 
 float PITCH_P_VAL = 15; //Pitch Pid Values
 float PITCH_I_VAL = 8;
-float PITCH_D_VAL = 3;
+float PITCH_D_VAL = 5;
 
 float ROLL_P_VAL = 15; //Roll Pid Values
 float ROLL_I_VAL = 8;
-float ROLL_D_VAL = 3;
+float ROLL_D_VAL = 5;
 
 bool lightOn = false;
 unsigned long lastLightTimeStamp = 0;
@@ -65,7 +66,9 @@ uint8_t fifoBuffer[64]; // FIFO storage
 //pid controllers
 PID pitchReg(&ypr[1], &pitchBalancer, &pitchBalancerSetpoint, PITCH_P_VAL, PITCH_I_VAL, PITCH_D_VAL, REVERSE);
 PID rollReg(&ypr[2], &rollBalancer, &rollBalancerSetpoint, ROLL_P_VAL, ROLL_I_VAL, ROLL_D_VAL, REVERSE);
-PID yawReg(&ypr[0], &yawRegulator, &yawSetpoint, 11.0f, 5.0f, 4.0f, REVERSE);
+PID yawReg(&ypr[0], &yawRegulator, &yawSetpoint, 16.0f, 11.0f, 7.0f, REVERSE);
+
+Adafruit_GPS GPS(&Serial3);
 
 bool systemReady = false;
 
@@ -75,13 +78,46 @@ void setup(){
   Wire.begin();
   TWBR = 24; // 400kHz I2C clock (200kHz if 8MHz CPU)
   
-  readPIDValues(); //read saved PID values
+  //readPIDValues(); //read saved PID values
   initializeLight(); //init lights
   initializePID(); //init PID
   initializeGyro(); //init gyro MPU6050
   initializeMotors(); //init motors
   initializeRCInterrupts(); //register rc interrupts
+  initializeGPS(); //inits the GPS module
   wdt_enable(WDTO_2S); //set watchdog timer to 2 secs
+}
+
+//disables the GPS interrupt
+void disableGPS(){
+  TIMSK0 &= ~_BV(OCIE0A);
+}
+
+//initializes the GPS module
+void initializeGPS(){
+  GPS.begin(9600);
+  // turn on RMC (recommended minimum) and GGA (fix data) including altitude
+  GPS.sendCommand(PMTK_SET_NMEA_OUTPUT_RMCGGA);
+  
+  //set update rate to 5Hz
+  GPS.sendCommand(PMTK_SET_NMEA_UPDATE_1HZ);
+  GPS.sendCommand(PMTK_API_SET_FIX_CTL_1HZ);
+  
+  //request antenna status updates
+  GPS.sendCommand(PGCMD_ANTENNA);
+  
+  //enable interrupt on Timer0
+  OCR0A = 0xAF;
+  TIMSK0 |= _BV(OCIE0A);
+  
+  //waiting a second for initializing of the GPS module
+  delay(1000);
+}
+
+//ISR for incoming GPS data
+SIGNAL(TIMER0_COMPA_vect) {
+  char c = GPS.read();
+  if (c) UDR0 = c; //writing the byte this way is much faster then serial.print
 }
 
 //read saved PID values from the EEPROM
@@ -113,7 +149,7 @@ void throttleISR(){
         rcThrottleDuration -= 1040.0;
       }
       if (rcThrottleDuration > 0.0){
-        baseSpeed = (int)(100.0/(980.0/rcThrottleDuration));
+        baseSpeed = (int)(120.0/(980.0/rcThrottleDuration));
       }else{
         baseSpeed = 0;
         //switch off
@@ -161,7 +197,7 @@ void rollISR(){
         rollBalancerSetpoint = 0.0;
       }else {
         //rolling left or right
-        double newSetpoint = -0.15 /(500.0 / (rcRollDuration - 1520.0));
+        double newSetpoint = 0.25 /(500.0 / (rcRollDuration - 1520.0));
         rollBalancerSetpoint = newSetpoint;
       }
      }
@@ -180,7 +216,7 @@ void pitchISR(){
         pitchBalancerSetpoint = 0.0;
       }else {
         //pitching down or up
-        double newSetpoint = 0.15 /(500.0 / (rcPitchDuration - 1520.0));
+        double newSetpoint = -0.25 /(500.0 / (rcPitchDuration - 1520.0));
         pitchBalancerSetpoint = newSetpoint;
       }
      }
@@ -364,8 +400,8 @@ void readDMP() { //read DMP when possible
 
 
 void holdBalance() {
-  //pitch > 0 front goes down
-  //roll > 0 right side goes down
+  //pitch < 0 front goes down
+  //roll < 0 right side goes down
   
   //Yaw to right => yawRegulator gets bigger
   //Yaw to left => yawRegulator gets smaller
@@ -381,10 +417,10 @@ void holdBalance() {
   yawReg.Compute();
   
   //set motors to a new calculated value
-  myMotor1.write((baseSpeed - yawRegulator) + pitchBalancer + rollBalancer);
-  myMotor2.write((baseSpeed + yawRegulator) + pitchBalancer - rollBalancer);
-  myMotor3.write((baseSpeed - yawRegulator) - pitchBalancer - rollBalancer);
-  myMotor4.write((baseSpeed + yawRegulator) - pitchBalancer + rollBalancer);
+  myMotor1.write((baseSpeed - yawRegulator) - pitchBalancer - rollBalancer);
+  myMotor2.write((baseSpeed + yawRegulator) - pitchBalancer + rollBalancer);
+  myMotor3.write((baseSpeed - yawRegulator) + pitchBalancer + rollBalancer);
+  myMotor4.write((baseSpeed + yawRegulator) + pitchBalancer - rollBalancer);
 }
 
 void checkStates(){
