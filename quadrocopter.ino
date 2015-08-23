@@ -12,6 +12,11 @@
 #include <EEPROM.h>
 #include <avr/wdt.h>
 #include "Adafruit_GPS.h"
+#include <SPI.h>
+#include <SD.h>
+
+//cs for sd-card
+const int chipSelect = 4;
 
 float PITCH_P_VAL = 15; //Pitch Pid Values
 float PITCH_I_VAL = 8;
@@ -72,8 +77,13 @@ Adafruit_GPS GPS(&Serial3);
 
 bool systemReady = false;
 
+File logFile;
+bool sdReady = false;
+unsigned long lastLogWrite = 0;
+
 void setup(){
   Serial.begin(9600);
+  Serial.println("start");
   pinMode(47, OUTPUT); //Set debug LED to output
   Wire.begin();
   TWBR = 24; // 400kHz I2C clock (200kHz if 8MHz CPU)
@@ -85,7 +95,13 @@ void setup(){
   initializeMotors(); //init motors
   initializeRCInterrupts(); //register rc interrupts
   initializeGPS(); //inits the GPS module
+  initializeSD(); //inits the sd slot
   wdt_enable(WDTO_2S); //set watchdog timer to 2 secs
+}
+
+//inits the sd slot
+void initializeSD(){
+  sdReady = SD.begin(chipSelect);
 }
 
 //disables the GPS interrupt
@@ -317,8 +333,53 @@ void loop(){
   //read serial commands
   readCommand();
   
+  //write log if necessary
+  writeLog();
+  
   //reset wdt
   wdt_reset();
+}
+
+//write log if necessary
+void writeLog(){
+  if (!sdReady){
+    return;
+  }
+  if (millis() - lastLogWrite >= 1000){
+    File dataFile = SD.open("log.txt", FILE_WRITE);
+    if(!dataFile){
+      return;
+    }
+    byte byteBuffer[12];
+    union doubleMemoryDivider {
+      double value;
+      struct {
+        byte b1;
+        byte b2;
+        byte b3;
+        byte b4;
+      }bytes;
+    };
+    union doubleMemoryDivider memUnion;
+    memUnion.value = ypr[0];
+    byteBuffer[0] = memUnion.bytes.b1;
+    byteBuffer[1] = memUnion.bytes.b2;
+    byteBuffer[2] = memUnion.bytes.b3;
+    byteBuffer[3] = memUnion.bytes.b4;
+    memUnion.value = ypr[1];
+    byteBuffer[4] = memUnion.bytes.b1;
+    byteBuffer[5] = memUnion.bytes.b2;
+    byteBuffer[6] = memUnion.bytes.b3;
+    byteBuffer[7] = memUnion.bytes.b4;
+    memUnion.value = ypr[2];
+    byteBuffer[8] = memUnion.bytes.b1;
+    byteBuffer[9] = memUnion.bytes.b2;
+    byteBuffer[10] = memUnion.bytes.b3;
+    byteBuffer[11] = memUnion.bytes.b4;
+    dataFile.write(byteBuffer, 12);
+    dataFile.close();
+    lastLogWrite = millis();
+  }
 }
 
 //read and interpret a serial command, if available
