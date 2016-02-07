@@ -18,13 +18,13 @@
 //cs for sd-card
 const int chipSelect = 4;
 
-float PITCH_P_VAL = 15; //Pitch Pid Values
-float PITCH_I_VAL = 8;
-float PITCH_D_VAL = 5;
+float PITCH_P_VAL = 11; //Pitch Pid Values
+float PITCH_I_VAL = 9;
+float PITCH_D_VAL = 9;
 
-float ROLL_P_VAL = 15; //Roll Pid Values
-float ROLL_I_VAL = 8;
-float ROLL_D_VAL = 5;
+float ROLL_P_VAL = 18; //Roll Pid Values
+float ROLL_I_VAL = 11;
+float ROLL_D_VAL = 9;
 
 bool lightOn = false;
 unsigned long lastLightTimeStamp = 0;
@@ -71,7 +71,7 @@ uint8_t fifoBuffer[64]; // FIFO storage
 //pid controllers
 PID pitchReg(&ypr[1], &pitchBalancer, &pitchBalancerSetpoint, PITCH_P_VAL, PITCH_I_VAL, PITCH_D_VAL, REVERSE);
 PID rollReg(&ypr[2], &rollBalancer, &rollBalancerSetpoint, ROLL_P_VAL, ROLL_I_VAL, ROLL_D_VAL, REVERSE);
-PID yawReg(&ypr[0], &yawRegulator, &yawSetpoint, 16.0f, 11.0f, 7.0f, REVERSE);
+PID yawReg(&ypr[0], &yawRegulator, &yawSetpoint, 15.0f, 13.0f, 10.0f, REVERSE);
 
 Adafruit_GPS GPS(&Serial3);
 
@@ -81,9 +81,10 @@ File logFile;
 bool sdReady = false;
 unsigned long lastLogWrite = 0;
 
+unsigned long lastOutput = 0;
+
 void setup(){
   Serial.begin(9600);
-  Serial.println("start");
   pinMode(47, OUTPUT); //Set debug LED to output
   Wire.begin();
   TWBR = 24; // 400kHz I2C clock (200kHz if 8MHz CPU)
@@ -95,7 +96,7 @@ void setup(){
   initializeMotors(); //init motors
   initializeRCInterrupts(); //register rc interrupts
   initializeGPS(); //inits the GPS module
-  initializeSD(); //inits the sd slot
+  //initializeSD(); //inits the sd slot
   wdt_enable(WDTO_2S); //set watchdog timer to 2 secs
 }
 
@@ -188,8 +189,8 @@ void startISR(){
         systemReady = true;
       }else if(rcStartDuration - 1520 > -50 && rcStartDuration - 1520 < 50){
         //calibration
-        dmpPOffset += ypr[1];
-        dmpROffset += ypr[2];
+        //dmpPOffset += ypr[1];
+        //dmpROffset += ypr[2];
         systemReady = false;
         
       }else{
@@ -334,7 +335,7 @@ void loop(){
   readCommand();
   
   //write log if necessary
-  writeLog();
+  //writeLog();
   
   //reset wdt
   wdt_reset();
@@ -455,6 +456,7 @@ void readDMP() { //read DMP when possible
     //clean the values with the calibration values
     ypr[1] -= dmpPOffset;
     ypr[2] -= dmpROffset;
+    
   }
 
 }
